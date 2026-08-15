@@ -18,6 +18,8 @@ import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
+import java.util.Random;
+
 public class MainActivity extends AppCompatActivity {
 
     private WebView webView;
@@ -25,18 +27,20 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String HOME = "https://mghangyi.com/";
 
-    // Chrome / External App ဖွင့်ထားခြင်းရှိမရှိ
-    private boolean externalAppOpened = false;
+    // External link ကနေ Chrome ပြန်ဝင်လာတာကို မှတ်ရန်
+    private boolean openedExternal = false;
 
-    // Refresh မလုပ်ခင် Scroll Position သိမ်းရန်
-    private int savedScrollX = 0;
-    private int savedScrollY = 0;
+    // နောက်တစ်ကြိမ် Notice ပြမယ့် click အရေအတွက်
+    private int clickCount = 0;
 
+    // 4 ~ 6 ကြိမ်ကြား random
+    private int nextNoticeAt;
+
+    private final Random random = new Random();
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-
         super.onCreate(savedInstanceState);
 
         setContentView(R.layout.activity_main);
@@ -44,129 +48,91 @@ public class MainActivity extends AppCompatActivity {
         swipe = findViewById(R.id.swipe);
         webView = findViewById(R.id.webview);
 
+        // ပထမဆုံး Notice ပြမယ့်အကြိမ်ကို random သတ်မှတ်
+        nextNoticeAt = randomNoticeNumber();
 
-        // =========================
-        // WebView Settings
-        // =========================
+        WebSettings s = webView.getSettings();
 
-        WebSettings settings = webView.getSettings();
+        s.setJavaScriptEnabled(true);
+        s.setDomStorageEnabled(true);
+        s.setDatabaseEnabled(true);
+        s.setAllowFileAccess(true);
 
-        settings.setJavaScriptEnabled(true);
-        settings.setDomStorageEnabled(true);
-        settings.setDatabaseEnabled(true);
+        // Video တွေကို user interaction မလိုဘဲ play ခွင့်
+        s.setMediaPlaybackRequiresUserGesture(false);
 
-        settings.setAllowFileAccess(true);
-
-        settings.setMediaPlaybackRequiresUserGesture(false);
-
-        settings.setSupportZoom(false);
-        settings.setBuiltInZoomControls(false);
-
-        settings.setDisplayZoomControls(false);
-
-
-        // =========================
-        // WebView Client
-        // =========================
+        s.setSupportZoom(false);
+        s.setBuiltInZoomControls(false);
+        s.setDisplayZoomControls(false);
 
         webView.setWebViewClient(new WebViewClient() {
 
             @Override
             public boolean shouldOverrideUrlLoading(
                     WebView view,
-                    WebResourceRequest request) {
+                    WebResourceRequest request
+            ) {
 
                 Uri uri = request.getUrl();
 
-                String host = uri.getHost();
-
-
-                // ==================================
-                // MGHANGYI Website
-                // ==================================
-
-                if (host != null &&
-                        (
-                                host.equals("mghangyi.com")
-                                || host.endsWith(".mghangyi.com")
-                        )
-                ) {
-
-                    // Website အတွင်း Link ဖြစ်ရင်
-                    // WebView ထဲမှာပဲ ဖွင့်မယ်
-
+                if (isInternalUrl(uri)) {
+                    // mghangyi.com ထဲက link
                     return false;
                 }
 
-
-                // ==================================
-                // External Link
-                // ==================================
-
-                showBackNotice(uri);
+                // External link / Ad / Chrome
+                openExternalLink(uri);
 
                 return true;
             }
 
+            // Android version အဟောင်းတွေအတွက်
+            @Override
+            public boolean shouldOverrideUrlLoading(
+                    WebView view,
+                    String url
+            ) {
+
+                Uri uri = Uri.parse(url);
+
+                if (isInternalUrl(uri)) {
+                    return false;
+                }
+
+                openExternalLink(uri);
+
+                return true;
+            }
 
             @Override
             public void onPageStarted(
                     WebView view,
                     String url,
-                    Bitmap favicon) {
-
+                    Bitmap favicon
+            ) {
+                // Loading indicator ပဲပြ
                 swipe.setRefreshing(true);
             }
-
 
             @Override
             public void onPageFinished(
                     WebView view,
-                    String url) {
-
+                    String url
+            ) {
                 swipe.setRefreshing(false);
-
-
-                // ==================================
-                // Scroll Position Restore
-                // ==================================
-
-                if (savedScrollY > 0) {
-
-                    webView.postDelayed(() -> {
-
-                        webView.scrollTo(
-                                savedScrollX,
-                                savedScrollY
-                        );
-
-                    }, 300);
-
-                }
             }
         });
 
-
-        // =========================
-        // Download Listener
-        // =========================
-
+        // Download link တွေ
         webView.setDownloadListener(
-                (url,
-                 userAgent,
-                 contentDisposition,
-                 mimeType,
-                 contentLength) -> {
+                (url, userAgent, contentDisposition, mimeType, contentLength) -> {
 
                     try {
 
-                        externalAppOpened = true;
+                        openedExternal = true;
 
                         Intent intent =
-                                new Intent(
-                                        Intent.ACTION_VIEW,
-                                        Uri.parse(url)
-                                );
+                                new Intent(Intent.ACTION_VIEW, Uri.parse(url));
 
                         startActivity(intent);
 
@@ -181,31 +147,17 @@ public class MainActivity extends AppCompatActivity {
                 }
         );
 
+        /*
+         * Swipe down လုပ်ရင် ကိုယ်တိုင် Refresh လုပ်နိုင်တယ်။
+         *
+         * App ပြန်ဝင်လာတိုင်း Auto Refresh မလုပ်တော့ပါ။
+         */
+        swipe.setOnRefreshListener(() -> webView.reload());
 
-        // =========================
-        // Pull To Refresh
-        // =========================
-
-        swipe.setOnRefreshListener(() -> {
-
-            savedScrollX = webView.getScrollX();
-            savedScrollY = webView.getScrollY();
-
-            webView.reload();
-        });
-
-
-        // =========================
-        // Load Website
-        // =========================
-
+        // Website ကို ပထမဆုံးတစ်ကြိမ် Load
         webView.loadUrl(HOME);
 
-
-        // =========================
         // Android Back Button
-        // =========================
-
         getOnBackPressedDispatcher().addCallback(
                 this,
                 new OnBackPressedCallback(true) {
@@ -227,167 +179,148 @@ public class MainActivity extends AppCompatActivity {
     }
 
 
-    // ==================================================
-    // Back Notice Popup
-    // ==================================================
+    /*
+     * Internal website ဟုတ်/မဟုတ် စစ်ခြင်း
+     */
+    private boolean isInternalUrl(Uri uri) {
 
-    private void showBackNotice(Uri uri) {
+        if (uri == null) {
+            return false;
+        }
+
+        String host = uri.getHost();
+
+        if (host == null) {
+            return false;
+        }
+
+        return host.equals("mghangyi.com")
+                || host.equals("www.mghangyi.com")
+                || host.endsWith(".mghangyi.com");
+    }
+
+
+    /*
+     * External link ကို Chrome / သက်ဆိုင်ရာ App ထဲဖွင့်
+     */
+    private void openExternalLink(Uri uri) {
 
         try {
 
-            // Scroll Position သိမ်းမယ်
-            savedScrollX = webView.getScrollX();
-            savedScrollY = webView.getScrollY();
+            openedExternal = true;
 
+            Intent intent =
+                    new Intent(Intent.ACTION_VIEW, uri);
 
-            // ImageView
-            ImageView imageView = new ImageView(this);
-
-            imageView.setImageResource(
-                    R.drawable.back_notice
-            );
-
-            imageView.setAdjustViewBounds(true);
-
-            imageView.setScaleType(
-                    ImageView.ScaleType.FIT_CENTER
-            );
-
-
-            // Popup Padding
-            imageView.setPadding(
-                    20,
-                    10,
-                    20,
-                    10
-            );
-
-
-            // =========================
-            // Dialog
-            // =========================
-
-            AlertDialog dialog =
-                    new AlertDialog.Builder(this)
-                            .setView(imageView)
-
-                            .setPositiveButton(
-                                    "ဆက်ကြည့်မယ်",
-                                    null
-                            )
-
-                            .setNegativeButton(
-                                    "မလုပ်တော့ပါ",
-                                    null
-                            )
-
-                            .create();
-
-
-            // =========================
-            // ဆက်ကြည့်မယ်
-            // =========================
-
-            dialog.setOnShowListener(
-                    d -> {
-
-                        dialog.getButton(
-                                AlertDialog.BUTTON_POSITIVE
-                        ).setOnClickListener(v -> {
-
-                            // External App ဖွင့်ထားကြောင်း မှတ်ထား
-                            externalAppOpened = true;
-
-
-                            try {
-
-                                Intent intent =
-                                        new Intent(
-                                                Intent.ACTION_VIEW,
-                                                uri
-                                        );
-
-                                startActivity(intent);
-
-                                dialog.dismiss();
-
-                            } catch (Exception e) {
-
-                                Toast.makeText(
-                                        MainActivity.this,
-                                        "Link ကို ဖွင့်လို့မရပါ",
-                                        Toast.LENGTH_SHORT
-                                ).show();
-                            }
-
-                        });
-                    }
-            );
-
-
-            dialog.show();
-
+            startActivity(intent);
 
         } catch (Exception e) {
 
-            // Popup မပြနိုင်ရင်
-            // Link ကို တိုက်ရိုက်ဖွင့်
-
-            try {
-
-                externalAppOpened = true;
-
-                startActivity(
-                        new Intent(
-                                Intent.ACTION_VIEW,
-                                uri
-                        )
-                );
-
-            } catch (Exception ignored) {
-            }
+            Toast.makeText(
+                    MainActivity.this,
+                    "Link could not be opened",
+                    Toast.LENGTH_SHORT
+            ).show();
         }
     }
 
 
-    // ==================================================
-    // App ပြန်ဝင်လာတဲ့အချိန်
-    // ==================================================
-
+    /*
+     * Chrome / External App ကနေ
+     * Main App ထဲ Back ပြန်ဝင်လာတဲ့အချိန်
+     */
     @Override
     protected void onResume() {
 
         super.onResume();
 
+        if (openedExternal) {
 
-        // Chrome / External App ကနေ
-        // MGHANGYI App ပြန်ဝင်လာတာဆိုရင်
+            openedExternal = false;
 
-        if (externalAppOpened) {
+            // External link တစ်ကြိမ်ပြန်ဝင်လာတိုင်း count +1
+            clickCount++;
 
-            externalAppOpened = false;
+            // သတ်မှတ်ထားတဲ့အကြိမ်ရောက်ပြီဆို Notice ပြ
+            if (clickCount >= nextNoticeAt) {
 
+                clickCount = 0;
 
-            // နည်းနည်းစောင့်ပြီး Refresh
+                // နောက်တစ်ကြိမ်ကို 4 ~ 6 ကြိမ်ကြား random
+                nextNoticeAt = randomNoticeNumber();
 
-            webView.postDelayed(() -> {
-
-                if (webView != null) {
-
-                    savedScrollX = webView.getScrollX();
-                    savedScrollY = webView.getScrollY();
-
-                    webView.reload();
-                }
-
-            }, 500);
+                showBackNotice();
+            }
         }
+
+        /*
+         * IMPORTANT:
+         * ဒီနေရာမှာ webView.reload() မရှိပါ။
+         *
+         * ဒါကြောင့် Chrome ကနေ Back ပြန်လာတဲ့အခါ
+         * Website Auto Refresh မဖြစ်တော့ပါ။
+         */
     }
 
 
-    // ==================================================
-    // Destroy
-    // ==================================================
+    /*
+     * 4 ~ 6 ကြိမ်ကြား Random
+     */
+    private int randomNoticeNumber() {
+
+        return 4 + random.nextInt(3);
+        // 4, 5, 6 ထဲက တစ်ခု random
+    }
+
+
+    /*
+     * Back Notice ပြခြင်း
+     */
+    private void showBackNotice() {
+
+        ImageView imageView = new ImageView(this);
+
+        imageView.setImageResource(R.drawable.back_notice);
+
+        imageView.setAdjustViewBounds(true);
+
+        imageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
+
+        int padding = 20;
+
+        imageView.setPadding(
+                padding,
+                padding,
+                padding,
+                padding
+        );
+
+        AlertDialog dialog =
+                new AlertDialog.Builder(this)
+                        .setView(imageView)
+                        .setCancelable(true)
+                        .create();
+
+        dialog.show();
+
+        /*
+         * Dialog ကို screen အကျယ်နဲ့ သင့်တော်အောင်
+         */
+        if (dialog.getWindow() != null) {
+
+            int width =
+                    (int) (getResources()
+                            .getDisplayMetrics()
+                            .widthPixels * 0.90);
+
+            dialog.getWindow()
+                    .setLayout(
+                            width,
+                            android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+                    );
+        }
+    }
+
 
     @Override
     protected void onDestroy() {
@@ -395,6 +328,9 @@ public class MainActivity extends AppCompatActivity {
         if (webView != null) {
 
             webView.stopLoading();
+
+            webView.setWebViewClient(null);
+
             webView.destroy();
         }
 
