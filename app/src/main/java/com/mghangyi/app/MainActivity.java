@@ -1,18 +1,3 @@
-package com.mghangyi.app;
-
-import android.annotation.SuppressLint;
-import android.app.Activity;
-import android.content.Intent;
-import android.graphics.Bitmap;
-import android.net.Uri;
-import android.os.Bundle;
-import android.webkit.*;
-import android.widget.Toast;
-
-import androidx.activity.OnBackPressedCallback;
-import androidx.appcompat.app.AppCompatActivity;
-import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
-
 public class MainActivity extends AppCompatActivity {
 
     private WebView webView;
@@ -20,7 +5,7 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String HOME = "https://mghangyi.com/";
 
-    // External app / Chrome ပွင့်သွားခဲ့လား စစ်ရန်
+    // Chrome / external app ဖွင့်ထားလား
     private boolean externalAppOpened = false;
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -33,7 +18,6 @@ public class MainActivity extends AppCompatActivity {
         webView = findViewById(R.id.webview);
 
         WebSettings s = webView.getSettings();
-
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setDatabaseEnabled(true);
@@ -52,15 +36,15 @@ public class MainActivity extends AppCompatActivity {
                 Uri uri = request.getUrl();
                 String host = uri.getHost();
 
-                // ကိုယ့် website ထဲက link ဆို WebView ထဲမှာပဲ ဖွင့်
+                // ကိုယ့် Website
                 if (host != null &&
                         (host.equals("mghangyi.com")
-                                || host.endsWith(".mghangyi.com"))) {
+                        || host.endsWith(".mghangyi.com"))) {
 
                     return false;
                 }
 
-                // External link / Chrome / Ads
+                // External link -> Chrome
                 try {
                     externalAppOpened = true;
 
@@ -71,8 +55,7 @@ public class MainActivity extends AppCompatActivity {
 
                     startActivity(intent);
 
-                } catch (Exception ignored) {
-                }
+                } catch (Exception ignored) {}
 
                 return true;
             }
@@ -95,41 +78,36 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        // Download link
         webView.setDownloadListener(
-                (url, userAgent, contentDisposition, mimeType, contentLength) -> {
+                (url, userAgent, contentDisposition,
+                 mimeType, contentLength) -> {
 
-                    try {
+            try {
+                externalAppOpened = true;
 
-                        externalAppOpened = true;
+                startActivity(
+                        new Intent(
+                                Intent.ACTION_VIEW,
+                                Uri.parse(url)
+                        )
+                );
 
-                        startActivity(
-                                new Intent(
-                                        Intent.ACTION_VIEW,
-                                        Uri.parse(url)
-                                )
-                        );
+            } catch (Exception e) {
 
-                    } catch (Exception e) {
+                Toast.makeText(
+                        this,
+                        "Download link could not be opened",
+                        Toast.LENGTH_SHORT
+                ).show();
+            }
+        });
 
-                        Toast.makeText(
-                                this,
-                                "Download link could not be opened",
-                                Toast.LENGTH_SHORT
-                        ).show();
-                    }
-                }
-        );
+        swipe.setOnRefreshListener(() -> {
+            webView.reload();
+        });
 
-        // Pull to refresh
-        swipe.setOnRefreshListener(
-                () -> webView.reload()
-        );
-
-        // Website load
         webView.loadUrl(HOME);
 
-        // Android Back button
         getOnBackPressedDispatcher().addCallback(
                 this,
                 new OnBackPressedCallback(true) {
@@ -138,11 +116,8 @@ public class MainActivity extends AppCompatActivity {
                     public void handleOnBackPressed() {
 
                         if (webView.canGoBack()) {
-
                             webView.goBack();
-
                         } else {
-
                             finish();
                         }
                     }
@@ -150,18 +125,16 @@ public class MainActivity extends AppCompatActivity {
         );
     }
 
-    // Chrome / External App ကနေ App ထဲပြန်ဝင်လာတဲ့အချိန်
+    // Chrome ကနေ App ထဲပြန်ဝင်လာတဲ့အချိန်
     @Override
     protected void onResume() {
-
         super.onResume();
 
         if (externalAppOpened) {
 
             externalAppOpened = false;
 
-            // Chrome ပိတ်ပြီး App ပြန်ဝင်တဲ့အချိန်
-            // 500ms နောက်မှာ တစ်ကြိမ်ပဲ refresh
+            // နည်းနည်းစောင့်ပြီး Reload
             webView.postDelayed(() -> {
 
                 if (webView != null) {
