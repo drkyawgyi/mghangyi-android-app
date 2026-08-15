@@ -1,8 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <application
+        android:icon="@drawable/mghangyi_icon"
+android:roundIcon="@drawable/mghangyi_icon"
         android:theme="@style/Theme.MGHANGYI"
-        android:label="MGHANGYI"
+        android:label="DRHANGYI ZONE"
         android:usesCleartextTraffic="false"
         android:hardwareAccelerated="true"
         android:configChanges="orientation|screenSize|keyboardHidden">
