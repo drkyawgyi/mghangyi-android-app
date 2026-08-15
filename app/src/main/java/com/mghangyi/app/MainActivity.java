@@ -3,9 +3,11 @@ package com.mghangyi.app;
 import android.annotation.SuppressLint;
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
 import android.view.View;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -18,8 +20,6 @@ import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
-import java.util.Random;
-
 public class MainActivity extends AppCompatActivity {
 
     private WebView webView;
@@ -27,20 +27,19 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String HOME = "https://mghangyi.com/";
 
-    // External link ကနေ Chrome ပြန်ဝင်လာတာကို မှတ်ရန်
+    // External link / Chrome ဖွင့်ထားခြင်း
     private boolean openedExternal = false;
 
-    // နောက်တစ်ကြိမ် Notice ပြမယ့် click အရေအတွက်
-    private int clickCount = 0;
+    // Notice count သိမ်းရန်
+    private SharedPreferences prefs;
 
-    // 4 ~ 6 ကြိမ်ကြား random
-    private int nextNoticeAt;
-
-    private final Random random = new Random();
+    private static final String PREF_NAME = "app_settings";
+    private static final String RETURN_COUNT = "return_count";
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+
         super.onCreate(savedInstanceState);
 
         setContentView(R.layout.activity_main);
@@ -48,8 +47,7 @@ public class MainActivity extends AppCompatActivity {
         swipe = findViewById(R.id.swipe);
         webView = findViewById(R.id.webview);
 
-        // ပထမဆုံး Notice ပြမယ့်အကြိမ်ကို random သတ်မှတ်
-        nextNoticeAt = randomNoticeNumber();
+        prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
 
         WebSettings s = webView.getSettings();
 
@@ -58,7 +56,6 @@ public class MainActivity extends AppCompatActivity {
         s.setDatabaseEnabled(true);
         s.setAllowFileAccess(true);
 
-        // Video တွေကို user interaction မလိုဘဲ play ခွင့်
         s.setMediaPlaybackRequiresUserGesture(false);
 
         s.setSupportZoom(false);
@@ -70,36 +67,33 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public boolean shouldOverrideUrlLoading(
                     WebView view,
-                    WebResourceRequest request
-            ) {
+                    WebResourceRequest request) {
 
                 Uri uri = request.getUrl();
 
                 if (isInternalUrl(uri)) {
-                    // mghangyi.com ထဲက link
+
                     return false;
                 }
 
-                // External link / Ad / Chrome
-                openExternalLink(uri);
+                openExternal(uri);
 
                 return true;
             }
 
-            // Android version အဟောင်းတွေအတွက်
             @Override
             public boolean shouldOverrideUrlLoading(
                     WebView view,
-                    String url
-            ) {
+                    String url) {
 
                 Uri uri = Uri.parse(url);
 
                 if (isInternalUrl(uri)) {
+
                     return false;
                 }
 
-                openExternalLink(uri);
+                openExternal(uri);
 
                 return true;
             }
@@ -108,31 +102,35 @@ public class MainActivity extends AppCompatActivity {
             public void onPageStarted(
                     WebView view,
                     String url,
-                    Bitmap favicon
-            ) {
-                // Loading indicator ပဲပြ
+                    Bitmap favicon) {
+
                 swipe.setRefreshing(true);
             }
 
             @Override
             public void onPageFinished(
                     WebView view,
-                    String url
-            ) {
+                    String url) {
+
                 swipe.setRefreshing(false);
             }
         });
 
-        // Download link တွေ
+
+        // Download link
         webView.setDownloadListener(
-                (url, userAgent, contentDisposition, mimeType, contentLength) -> {
+                (url, userAgent, contentDisposition,
+                 mimeType, contentLength) -> {
 
                     try {
 
                         openedExternal = true;
 
                         Intent intent =
-                                new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                                new Intent(
+                                        Intent.ACTION_VIEW,
+                                        Uri.parse(url)
+                                );
 
                         startActivity(intent);
 
@@ -147,15 +145,18 @@ public class MainActivity extends AppCompatActivity {
                 }
         );
 
-        /*
-         * Swipe down လုပ်ရင် ကိုယ်တိုင် Refresh လုပ်နိုင်တယ်။
-         *
-         * App ပြန်ဝင်လာတိုင်း Auto Refresh မလုပ်တော့ပါ။
-         */
-        swipe.setOnRefreshListener(() -> webView.reload());
 
-        // Website ကို ပထမဆုံးတစ်ကြိမ် Load
+        // User ကိုယ်တိုင် pull down လုပ်ရင်သာ refresh
+        swipe.setOnRefreshListener(() -> {
+
+            webView.reload();
+
+        });
+
+
+        // Website စတင်ဖွင့်
         webView.loadUrl(HOME);
+
 
         // Android Back Button
         getOnBackPressedDispatcher().addCallback(
@@ -179,38 +180,21 @@ public class MainActivity extends AppCompatActivity {
     }
 
 
-    /*
-     * Internal website ဟုတ်/မဟုတ် စစ်ခြင်း
-     */
-    private boolean isInternalUrl(Uri uri) {
+    // =========================================================
+    // External URL ဖွင့်ခြင်း
+    // =========================================================
 
-        if (uri == null) {
-            return false;
-        }
-
-        String host = uri.getHost();
-
-        if (host == null) {
-            return false;
-        }
-
-        return host.equals("mghangyi.com")
-                || host.equals("www.mghangyi.com")
-                || host.endsWith(".mghangyi.com");
-    }
-
-
-    /*
-     * External link ကို Chrome / သက်ဆိုင်ရာ App ထဲဖွင့်
-     */
-    private void openExternalLink(Uri uri) {
+    private void openExternal(Uri uri) {
 
         try {
 
             openedExternal = true;
 
             Intent intent =
-                    new Intent(Intent.ACTION_VIEW, uri);
+                    new Intent(
+                            Intent.ACTION_VIEW,
+                            uri
+                    );
 
             startActivity(intent);
 
@@ -225,68 +209,141 @@ public class MainActivity extends AppCompatActivity {
     }
 
 
-    /*
-     * Chrome / External App ကနေ
-     * Main App ထဲ Back ပြန်ဝင်လာတဲ့အချိန်
-     */
+    // =========================================================
+    // Website အတွင်း Link ဟုတ်/မဟုတ်
+    // =========================================================
+
+    private boolean isInternalUrl(Uri uri) {
+
+        if (uri == null) {
+
+            return false;
+        }
+
+        String host = uri.getHost();
+
+        if (host == null) {
+
+            return false;
+        }
+
+        return host.equals("mghangyi.com")
+                || host.equals("www.mghangyi.com")
+                || host.endsWith(".mghangyi.com");
+    }
+
+
+    // =========================================================
+    // Chrome / Ad ကနေ Back ပြန်ဝင်လာတဲ့အချိန်
+    // =========================================================
+
     @Override
     protected void onResume() {
 
         super.onResume();
 
-        if (openedExternal) {
+        if (!openedExternal) {
 
-            openedExternal = false;
-
-            // External link တစ်ကြိမ်ပြန်ဝင်လာတိုင်း count +1
-            clickCount++;
-
-            // သတ်မှတ်ထားတဲ့အကြိမ်ရောက်ပြီဆို Notice ပြ
-            if (clickCount >= nextNoticeAt) {
-
-                clickCount = 0;
-
-                // နောက်တစ်ကြိမ်ကို 4 ~ 6 ကြိမ်ကြား random
-                nextNoticeAt = randomNoticeNumber();
-
-                showBackNotice();
-            }
+            return;
         }
 
+        // External app ပြန်လာပြီ
+        openedExternal = false;
+
+
+        // Loading spinner ကို အရင်ဆုံးပိတ်
+        swipe.setRefreshing(false);
+
+        // WebView ရဲ့ stuck loading ကို ရပ်
+        webView.stopLoading();
+
+
         /*
-         * IMPORTANT:
-         * ဒီနေရာမှာ webView.reload() မရှိပါ။
+         * Chrome ကနေ Back ပြန်လာတဲ့အခါ
+         * WebView ကို clean reload တစ်ကြိမ်လုပ်ပေးမယ်။
          *
-         * ဒါကြောင့် Chrome ကနေ Back ပြန်လာတဲ့အခါ
-         * Website Auto Refresh မဖြစ်တော့ပါ။
+         * ဒီလိုလုပ်မှ screenshot ထဲက
+         * အဝိုင်းကြီးလည်ပြီး မပြီးတဲ့ပြဿနာ
+         * ပျောက်သွားမယ်။
          */
+
+        new Handler().postDelayed(() -> {
+
+            if (!isFinishing()) {
+
+                webView.reload();
+
+            }
+
+        }, 300);
+
+
+        // =====================================================
+        // Notice Counter
+        // =====================================================
+
+        int count =
+                prefs.getInt(
+                        RETURN_COUNT,
+                        0
+                );
+
+        count++;
+
+        prefs.edit()
+                .putInt(
+                        RETURN_COUNT,
+                        count
+                )
+                .apply();
+
+
+        /*
+         * Notice ပြမယ့် အစီအစဉ်
+         *
+         * 1
+         * 6
+         * 11
+         * 16
+         * 21
+         * ...
+         */
+
+        if (count == 1 || (count > 1 && (count - 1) % 5 == 0)) {
+
+            // Page reload ပြီးမှ Notice ပြ
+            new Handler().postDelayed(() -> {
+
+                if (!isFinishing()) {
+
+                    showBackNotice();
+                }
+
+            }, 1000);
+        }
     }
 
 
-    /*
-     * 4 ~ 6 ကြိမ်ကြား Random
-     */
-    private int randomNoticeNumber() {
+    // =========================================================
+    // Back Notice
+    // =========================================================
 
-        return 4 + random.nextInt(3);
-        // 4, 5, 6 ထဲက တစ်ခု random
-    }
-
-
-    /*
-     * Back Notice ပြခြင်း
-     */
     private void showBackNotice() {
 
-        ImageView imageView = new ImageView(this);
+        ImageView imageView =
+                new ImageView(this);
 
-        imageView.setImageResource(R.drawable.back_notice);
+        imageView.setImageResource(
+                R.drawable.back_notice
+        );
 
         imageView.setAdjustViewBounds(true);
 
-        imageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        imageView.setScaleType(
+                ImageView.ScaleType.FIT_CENTER
+        );
 
-        int padding = 20;
+        int padding = 15;
 
         imageView.setPadding(
                 padding,
@@ -294,6 +351,7 @@ public class MainActivity extends AppCompatActivity {
                 padding,
                 padding
         );
+
 
         AlertDialog dialog =
                 new AlertDialog.Builder(this)
@@ -303,15 +361,16 @@ public class MainActivity extends AppCompatActivity {
 
         dialog.show();
 
-        /*
-         * Dialog ကို screen အကျယ်နဲ့ သင့်တော်အောင်
-         */
+
         if (dialog.getWindow() != null) {
 
             int width =
-                    (int) (getResources()
-                            .getDisplayMetrics()
-                            .widthPixels * 0.90);
+                    (int) (
+                            getResources()
+                                    .getDisplayMetrics()
+                                    .widthPixels
+                                    * 0.90
+                    );
 
             dialog.getWindow()
                     .setLayout(
@@ -321,6 +380,10 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+
+    // =========================================================
+    // Destroy
+    // =========================================================
 
     @Override
     protected void onDestroy() {
