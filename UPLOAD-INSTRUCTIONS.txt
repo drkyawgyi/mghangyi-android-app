@@ -1,0 +1,18 @@
+IMPORTANT:
+This package contains files flattened into one folder so your phone can select them all at once.
+GitHub's normal web uploader does NOT automatically reconstruct the required folders from a ZIP.
+
+For the Android project to work, these files must ultimately be placed at these exact paths:
+.github/workflows/build-apk.yml
+app/build.gradle
+app/src/main/AndroidManifest.xml
+app/src/main/java/com/mghangyi/app/MainActivity.java
+app/src/main/res/layout/activity_main.xml
+app/src/main/res/values/styles.xml
+app/src/main/res/values/colors.xml
+build.gradle
+gradle.properties
+settings.gradle
+README.md
+
+If you want a truly one-upload solution on a phone, use GitHub Codespaces/CLI or a Git client app that can extract the ZIP into the repository.
