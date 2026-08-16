@@ -8,8 +8,9 @@ import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.Message;
 import android.provider.Settings;
-import android.view.View;
+import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -33,25 +34,25 @@ public class MainActivity extends AppCompatActivity {
     private static final String HOME =
             "https://mghangyi.com/";
 
-    // =========================================================
-    // Supabase
-    // =========================================================
+    // =====================================================
+    // SUPABASE
+    // =====================================================
 
     private static final String SUPABASE_URL =
-            "https://vjibjebyantllmmrhuzef.supabase.co";
+            "https://vjbjebyantllmmrhuzef.supabase.co";
 
     private static final String SUPABASE_KEY =
             "sb_publishable_ZkMygFtQq5bwhevExbA3Gw_B0zMaquR";
 
-    // =========================================================
-    // External link / Chrome ဖွင့်ထားခြင်း
-    // =========================================================
+    // =====================================================
+    // EXTERNAL CHROME
+    // =====================================================
 
     private boolean openedExternal = false;
 
-    // =========================================================
-    // Notice count သိမ်းရန်
-    // =========================================================
+    // =====================================================
+    // PREFERENCES
+    // =====================================================
 
     private SharedPreferences prefs;
 
@@ -61,10 +62,27 @@ public class MainActivity extends AppCompatActivity {
     private static final String RETURN_COUNT =
             "return_count";
 
+    // =====================================================
+    // POP UNDER
+    // 5 MINUTES = 300,000 milliseconds
+    // =====================================================
 
-    // =========================================================
-    // onCreate
-    // =========================================================
+    private static final String POPUNDER_LAST_TIME =
+            "popunder_last_time";
+
+    private static final long POPUNDER_INTERVAL_MS =
+            5L * 60L * 1000L;
+
+    // =====================================================
+    // INSTALL
+    // =====================================================
+
+    private static final String INSTALL_REGISTERED =
+            "install_registered";
+
+    // =====================================================
+    // ON CREATE
+    // =====================================================
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -75,7 +93,6 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         swipe = findViewById(R.id.swipe);
-
         webView = findViewById(R.id.webview);
 
         prefs = getSharedPreferences(
@@ -83,114 +100,231 @@ public class MainActivity extends AppCompatActivity {
                 MODE_PRIVATE
         );
 
-
-        // =====================================================
-        // App Install ကို Supabase မှာ မှတ်တမ်းတင်
-        // =====================================================
-
+        // Register app installation
         registerAppInstall();
 
+        // =================================================
+        // WEBVIEW SETTINGS
+        // =================================================
 
-        // =====================================================
-        // WebView Settings
-        // =====================================================
+        WebSettings settings =
+                webView.getSettings();
 
-        WebSettings s = webView.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setDatabaseEnabled(true);
 
-        s.setJavaScriptEnabled(true);
+        settings.setAllowFileAccess(true);
 
-        s.setDomStorageEnabled(true);
+        settings.setMediaPlaybackRequiresUserGesture(
+                false
+        );
 
-        s.setDatabaseEnabled(true);
+        settings.setSupportZoom(false);
+        settings.setBuiltInZoomControls(false);
+        settings.setDisplayZoomControls(false);
 
-        s.setAllowFileAccess(true);
+        // Popup support
+        settings.setSupportMultipleWindows(true);
+        settings.setJavaScriptCanOpenWindowsAutomatically(
+                true
+        );
 
-        s.setMediaPlaybackRequiresUserGesture(false);
+        // =================================================
+        // WEBVIEW CLIENT
+        // =================================================
 
-        s.setSupportZoom(false);
+        webView.setWebViewClient(
+                new WebViewClient() {
 
-        s.setBuiltInZoomControls(false);
+                    @Override
+                    public boolean shouldOverrideUrlLoading(
+                            WebView view,
+                            WebResourceRequest request) {
 
-        s.setDisplayZoomControls(false);
+                        Uri uri = request.getUrl();
 
-        // Pop-up / new window မဖွင့်စေရန်
-        s.setSupportMultipleWindows(false);
+                        if (isInternalUrl(uri)) {
+                            return false;
+                        }
 
-        s.setJavaScriptCanOpenWindowsAutomatically(false);
+                        openExternal(uri);
+                        return true;
+                    }
 
+                    @Override
+                    public boolean shouldOverrideUrlLoading(
+                            WebView view,
+                            String url) {
 
-        // =====================================================
-        // WebView Client
-        // =====================================================
+                        Uri uri = Uri.parse(url);
 
-        webView.setWebViewClient(new WebViewClient() {
+                        if (isInternalUrl(uri)) {
+                            return false;
+                        }
 
-            @Override
-            public boolean shouldOverrideUrlLoading(
-                    WebView view,
-                    WebResourceRequest request) {
+                        openExternal(uri);
+                        return true;
+                    }
 
-                Uri uri = request.getUrl();
+                    @Override
+                    public void onPageStarted(
+                            WebView view,
+                            String url,
+                            Bitmap favicon) {
 
-                if (isInternalUrl(uri)) {
+                        swipe.setRefreshing(true);
+                    }
 
-                    return false;
+                    @Override
+                    public void onPageFinished(
+                            WebView view,
+                            String url) {
+
+                        swipe.setRefreshing(false);
+                    }
                 }
+        );
 
-                openExternal(uri);
+        // =================================================
+        // POP UNDER / NEW WINDOW
+        // =================================================
 
-                return true;
-            }
+        webView.setWebChromeClient(
+                new WebChromeClient() {
 
+                    @Override
+                    public boolean onCreateWindow(
+                            WebView view,
+                            boolean isDialog,
+                            boolean isUserGesture,
+                            Message resultMsg) {
 
-            @Override
-            public boolean shouldOverrideUrlLoading(
-                    WebView view,
-                    String url) {
+                        // 5 minutes မပြည့်သေးရင်
+                        // popup ကို မဖွင့်ပါ
+                        if (!canOpenPopUnder()) {
+                            return false;
+                        }
 
-                Uri uri = Uri.parse(url);
+                        // Popup ဖွင့်ပြီးချိန်ကို မှတ်ထား
+                        markPopUnderOpened();
 
-                if (isInternalUrl(uri)) {
+                        WebView popupWebView =
+                                new WebView(
+                                        MainActivity.this
+                                );
 
-                    return false;
+                        WebSettings popupSettings =
+                                popupWebView.getSettings();
+
+                        popupSettings.setJavaScriptEnabled(
+                                true
+                        );
+
+                        popupSettings.setDomStorageEnabled(
+                                true
+                        );
+
+                        popupWebView.setWebViewClient(
+                                new WebViewClient() {
+
+                                    private boolean opened =
+                                            false;
+
+                                    @Override
+                                    public void onPageStarted(
+                                            WebView view,
+                                            String url,
+                                            Bitmap favicon) {
+
+                                        if (opened) {
+                                            return;
+                                        }
+
+                                        if (
+                                                url == null ||
+                                                url.equals(
+                                                        "about:blank"
+                                                )
+                                        ) {
+                                            return;
+                                        }
+
+                                        opened = true;
+
+                                        openExternalFromPopup(
+                                                Uri.parse(url),
+                                                view
+                                        );
+                                    }
+
+                                    @Override
+                                    public boolean
+                                    shouldOverrideUrlLoading(
+                                            WebView view,
+                                            WebResourceRequest request) {
+
+                                        if (!opened) {
+
+                                            opened = true;
+
+                                            openExternalFromPopup(
+                                                    request.getUrl(),
+                                                    view
+                                            );
+                                        }
+
+                                        return true;
+                                    }
+
+                                    @Override
+                                    public boolean
+                                    shouldOverrideUrlLoading(
+                                            WebView view,
+                                            String url) {
+
+                                        if (!opened) {
+
+                                            opened = true;
+
+                                            openExternalFromPopup(
+                                                    Uri.parse(url),
+                                                    view
+                                            );
+                                        }
+
+                                        return true;
+                                    }
+                                }
+                        );
+
+                        WebView.WebViewTransport transport =
+                                (WebView.WebViewTransport)
+                                        resultMsg.obj;
+
+                        transport.setWebView(
+                                popupWebView
+                        );
+
+                        resultMsg.sendToTarget();
+
+                        return true;
+                    }
                 }
+        );
 
-                openExternal(uri);
-
-                return true;
-            }
-
-
-            @Override
-            public void onPageStarted(
-                    WebView view,
-                    String url,
-                    Bitmap favicon) {
-
-                swipe.setRefreshing(true);
-            }
-
-
-            @Override
-            public void onPageFinished(
-                    WebView view,
-                    String url) {
-
-                swipe.setRefreshing(false);
-            }
-        });
-
-
-        // =====================================================
-        // Download link
-        // =====================================================
+        // =================================================
+        // DOWNLOAD
+        // =================================================
 
         webView.setDownloadListener(
-                (url,
-                 userAgent,
-                 contentDisposition,
-                 mimeType,
-                 contentLength) -> {
+                (
+                        url,
+                        userAgent,
+                        contentDisposition,
+                        mimeType,
+                        contentLength
+                ) -> {
 
                     try {
 
@@ -215,28 +349,23 @@ public class MainActivity extends AppCompatActivity {
                 }
         );
 
+        // =================================================
+        // PULL TO REFRESH
+        // =================================================
 
-        // =====================================================
-        // Pull down refresh
-        // =====================================================
+        swipe.setOnRefreshListener(
+                () -> webView.reload()
+        );
 
-        swipe.setOnRefreshListener(() -> {
-
-            webView.reload();
-
-        });
-
-
-        // =====================================================
-        // Website စတင်ဖွင့်
-        // =====================================================
+        // =================================================
+        // LOAD WEBSITE
+        // =================================================
 
         webView.loadUrl(HOME);
 
-
-        // =====================================================
-        // Android Back Button
-        // =====================================================
+        // =================================================
+        // BACK BUTTON
+        // =================================================
 
         getOnBackPressedDispatcher().addCallback(
                 this,
@@ -258,106 +387,139 @@ public class MainActivity extends AppCompatActivity {
         );
     }
 
-
-    // =========================================================
-    // Supabase App Install Register
-    // =========================================================
+    // =====================================================
+    // SUPABASE INSTALL REGISTER
+    // =====================================================
 
     private void registerAppInstall() {
 
+        /*
+         * ဒီ device မှာ အရင် register လုပ်ပြီးသားဆို
+         * ထပ်မပို့ပါ
+         */
+
+        if (
+                prefs.getBoolean(
+                        INSTALL_REGISTERED,
+                        false
+                )
+        ) {
+            return;
+        }
+
         new Thread(() -> {
 
-            HttpURLConnection connection = null;
+            HttpURLConnection connection =
+                    null;
 
             try {
 
-                // Android device ID
                 String deviceId =
                         Settings.Secure.getString(
                                 getContentResolver(),
                                 Settings.Secure.ANDROID_ID
                         );
 
-
-                if (deviceId == null ||
-                        deviceId.trim().isEmpty()) {
-
+                if (
+                        deviceId == null ||
+                        deviceId.trim().isEmpty()
+                ) {
                     return;
                 }
 
-
-                // Supabase REST API
                 URL url = new URL(
                         SUPABASE_URL +
                                 "/rest/v1/app_installs"
                 );
 
-
                 connection =
                         (HttpURLConnection)
                                 url.openConnection();
 
-
                 connection.setRequestMethod("POST");
 
+                connection.setConnectTimeout(
+                        10000
+                );
+
+                connection.setReadTimeout(
+                        10000
+                );
 
                 connection.setRequestProperty(
                         "apikey",
                         SUPABASE_KEY
                 );
 
-
                 connection.setRequestProperty(
                         "Authorization",
                         "Bearer " + SUPABASE_KEY
                 );
-
 
                 connection.setRequestProperty(
                         "Content-Type",
                         "application/json"
                 );
 
-
-                // Duplicate device_id မထည့်စေရန်
                 connection.setRequestProperty(
-                        "Prefer",
-                        "resolution=ignore-duplicates"
+                        "Accept",
+                        "application/json"
                 );
 
+                connection.setRequestProperty(
+                        "Prefer",
+                        "resolution=ignore-duplicates,return=minimal"
+                );
 
                 connection.setDoOutput(true);
 
-
                 String json =
                         "{\"device_id\":\"" +
-                                deviceId +
-                                "\"}";
+                        deviceId +
+                        "\"}";
 
-
-                OutputStream os =
+                OutputStream output =
                         connection.getOutputStream();
 
-
-                os.write(
+                output.write(
                         json.getBytes("UTF-8")
                 );
 
-                os.flush();
-
-                os.close();
-
+                output.flush();
+                output.close();
 
                 int responseCode =
                         connection.getResponseCode();
 
-
                 android.util.Log.d(
                         "APP_INSTALL",
-                        "Supabase response: " +
+                        "Supabase response = " +
                                 responseCode
                 );
 
+                if (
+                        responseCode >= 200 &&
+                        responseCode < 300
+                ) {
+
+                    prefs.edit()
+                            .putBoolean(
+                                    INSTALL_REGISTERED,
+                                    true
+                            )
+                            .apply();
+
+                } else {
+
+                    runOnUiThread(
+                            () -> Toast.makeText(
+                                    MainActivity.this,
+                                    "Install count error: " +
+                                            responseCode,
+                                    Toast.LENGTH_LONG
+                            ).show()
+                    );
+                }
 
             } catch (Exception e) {
 
@@ -367,11 +529,17 @@ public class MainActivity extends AppCompatActivity {
                         e
                 );
 
+                runOnUiThread(
+                        () -> Toast.makeText(
+                                MainActivity.this,
+                                "Install count connection error",
+                                Toast.LENGTH_LONG
+                        ).show()
+                );
 
             } finally {
 
                 if (connection != null) {
-
                     connection.disconnect();
                 }
             }
@@ -379,10 +547,87 @@ public class MainActivity extends AppCompatActivity {
         }).start();
     }
 
+    // =====================================================
+    // POPUP -> CHROME
+    // =====================================================
 
-    // =========================================================
-    // External URL ဖွင့်ခြင်း
-    // =========================================================
+    private void openExternalFromPopup(
+            Uri uri,
+            WebView popupView
+    ) {
+
+        try {
+
+            openedExternal = true;
+
+            Intent intent =
+                    new Intent(
+                            Intent.ACTION_VIEW,
+                            uri
+                    );
+
+            startActivity(intent);
+
+        } catch (Exception e) {
+
+            Toast.makeText(
+                    MainActivity.this,
+                    "Link could not be opened",
+                    Toast.LENGTH_SHORT
+            ).show();
+
+        } finally {
+
+            if (popupView != null) {
+
+                popupView.stopLoading();
+                popupView.destroy();
+            }
+        }
+    }
+
+    // =====================================================
+    // CHECK 5 MINUTES
+    // =====================================================
+
+    private boolean canOpenPopUnder() {
+
+        long lastTime =
+                prefs.getLong(
+                        POPUNDER_LAST_TIME,
+                        0L
+                );
+
+        // ပထမဆုံးအကြိမ်
+        if (lastTime == 0L) {
+            return true;
+        }
+
+        long now =
+                System.currentTimeMillis();
+
+        return (
+                now - lastTime
+        ) >= POPUNDER_INTERVAL_MS;
+    }
+
+    // =====================================================
+    // SAVE POPUP TIME
+    // =====================================================
+
+    private void markPopUnderOpened() {
+
+        prefs.edit()
+                .putLong(
+                        POPUNDER_LAST_TIME,
+                        System.currentTimeMillis()
+                )
+                .apply();
+    }
+
+    // =====================================================
+    // NORMAL EXTERNAL LINK
+    // =====================================================
 
     private void openExternal(Uri uri) {
 
@@ -398,7 +643,6 @@ public class MainActivity extends AppCompatActivity {
 
             startActivity(intent);
 
-
         } catch (Exception e) {
 
             Toast.makeText(
@@ -409,83 +653,68 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-
-    // =========================================================
-    // Website အတွင်း Link ဟုတ်/မဟုတ်
-    // =========================================================
+    // =====================================================
+    // INTERNAL URL CHECK
+    // =====================================================
 
     private boolean isInternalUrl(Uri uri) {
 
         if (uri == null) {
-
             return false;
         }
-
 
         String host = uri.getHost();
 
-
         if (host == null) {
-
             return false;
         }
 
-
-        return host.equals("mghangyi.com")
-                || host.equals("www.mghangyi.com")
-                || host.endsWith(".mghangyi.com");
+        return host.equals(
+                        "mghangyi.com"
+                )
+                || host.equals(
+                        "www.mghangyi.com"
+                )
+                || host.endsWith(
+                        ".mghangyi.com"
+                );
     }
 
-
-    // =========================================================
-    // Chrome / Ad ကနေ Back ပြန်ဝင်လာတဲ့အချိန်
-    // =========================================================
+    // =====================================================
+    // RETURN FROM CHROME
+    // =====================================================
 
     @Override
     protected void onResume() {
 
         super.onResume();
 
-
         if (!openedExternal) {
-
             return;
         }
 
-
-        // External app ပြန်လာပြီ
         openedExternal = false;
 
-
-        // Loading spinner ကို အရင်ဆုံးပိတ်
+        // Spinner မပိတ်ဘဲကျန်နေတာ fix
         swipe.setRefreshing(false);
 
-
-        // WebView ရဲ့ stuck loading ကို ရပ်
         webView.stopLoading();
 
+        // Chrome ကနေပြန်လာရင် reload
+        new Handler().postDelayed(
+                () -> {
 
-        /*
-         * Chrome ကနေ Back ပြန်လာတဲ့အခါ
-         * WebView ကို clean reload တစ်ကြိမ်လုပ်ပေးမယ်။
-         *
-         * အဝိုင်းကြီးလည်ပြီး မပြီးတဲ့ပြဿနာ
-         * ပျောက်အောင်လုပ်ထားတာပါ။
-         */
+                    if (!isFinishing()) {
+                        webView.reload();
+                    }
 
-        new Handler().postDelayed(() -> {
+                },
+                300
+        );
 
-            if (!isFinishing()) {
-
-                webView.reload();
-            }
-
-        }, 300);
-
-
-        // =====================================================
-        // Notice Counter
-        // =====================================================
+        // =================================================
+        // RETURN COUNT
+        // =================================================
 
         int count =
                 prefs.getInt(
@@ -493,9 +722,7 @@ public class MainActivity extends AppCompatActivity {
                         0
                 );
 
-
         count++;
-
 
         prefs.edit()
                 .putInt(
@@ -504,66 +731,48 @@ public class MainActivity extends AppCompatActivity {
                 )
                 .apply();
 
-
-        /*
-         * Notice ပြမယ့် အစီအစဉ်
-         *
-         * 1
-         * 6
-         * 11
-         * 16
-         * 21
-         * ...
-         *
-         * ပထမဆုံး 1 ကြိမ်ပြ
-         * နောက်ပိုင်း 5 ကြိမ်တစ်ကြိမ်ပြ
-         */
-
+        // 1, 6, 11, 16...
         if (
                 count == 1 ||
-                (count > 1 &&
-                        (count - 1) % 5 == 0)
+                (
+                        count > 1 &&
+                        (count - 1) % 5 == 0
+                )
         ) {
 
-            // Page reload ပြီးမှ Notice ပြ
+            new Handler().postDelayed(
+                    () -> {
 
-            new Handler().postDelayed(() -> {
+                        if (!isFinishing()) {
+                            showBackNotice();
+                        }
 
-                if (!isFinishing()) {
-
-                    showBackNotice();
-                }
-
-            }, 1000);
+                    },
+                    1000
+            );
         }
     }
 
-
-    // =========================================================
-    // Back Notice
-    // =========================================================
+    // =====================================================
+    // BACK NOTICE
+    // =====================================================
 
     private void showBackNotice() {
 
         ImageView imageView =
                 new ImageView(this);
 
-
         imageView.setImageResource(
                 R.drawable.back_notice
         );
 
-
         imageView.setAdjustViewBounds(true);
-
 
         imageView.setScaleType(
                 ImageView.ScaleType.FIT_CENTER
         );
 
-
         int padding = 15;
-
 
         imageView.setPadding(
                 padding,
@@ -572,16 +781,13 @@ public class MainActivity extends AppCompatActivity {
                 padding
         );
 
-
         AlertDialog dialog =
                 new AlertDialog.Builder(this)
                         .setView(imageView)
                         .setCancelable(true)
                         .create();
 
-
         dialog.show();
-
 
         if (dialog.getWindow() != null) {
 
@@ -593,19 +799,16 @@ public class MainActivity extends AppCompatActivity {
                                     * 0.90
                     );
 
-
-            dialog.getWindow()
-                    .setLayout(
-                            width,
-                            android.view.ViewGroup.LayoutParams.WRAP_CONTENT
-                    );
+            dialog.getWindow().setLayout(
+                    width,
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+            );
         }
     }
 
-
-    // =========================================================
-    // Destroy
-    // =========================================================
+    // =====================================================
+    // DESTROY
+    // =====================================================
 
     @Override
     protected void onDestroy() {
@@ -616,9 +819,10 @@ public class MainActivity extends AppCompatActivity {
 
             webView.setWebViewClient(null);
 
+            webView.setWebChromeClient(null);
+
             webView.destroy();
         }
-
 
         super.onDestroy();
     }
