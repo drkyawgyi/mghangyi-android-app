@@ -1,16 +1,13 @@
 package com.mghangyi.app;
 
 import android.annotation.SuppressLint;
-import android.app.Activity;
+import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
-import android.os.Looper;
 import android.provider.Settings;
-import android.view.View;
-import android.webkit.CookieManager;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -18,106 +15,75 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
 
-import org.json.JSONArray;
-import org.json.JSONObject;
+import androidx.appcompat.app.AppCompatActivity;
 
 import java.io.BufferedReader;
-import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.net.URLEncoder;
 
-public class MainActivity extends Activity {
+public class MainActivity extends AppCompatActivity {
 
-    // =========================================================
-    // WEBSITE
-    // =========================================================
+    private WebView webView;
 
     private static final String WEBSITE_URL =
             "https://mghangyi.com";
 
-    // =========================================================
-    // TELEGRAM
-    // =========================================================
-
     private static final String TELEGRAM_URL =
             "https://t.me/aaabbbhdvip";
 
-    // =========================================================
-    // SUPABASE
-    // =========================================================
+    /*
+     * Supabase Project ID
+     */
+    private static final String SUPABASE_PROJECT_ID =
+            "vjbjebyantllmmrhuzef";
 
-    private static final String SUPABASE_URL =
-            "https://vjibjebyantllmmrhuzef.supabase.co";
-
-    private static final String SUPABASE_KEY =
+    /*
+     * IMPORTANT:
+     * Publishable key only.
+     * Never put Supabase secret/service_role key in Android app.
+     */
+    private static final String SUPABASE_ANON_KEY =
             "sb_publishable_ZkMygFtQq5bwhevExbA3Gw_B0zMaquR";
 
-    private static final String INSTALLS_TABLE =
-            "app_installs";
+    private final Handler handler = new Handler();
 
-    // =========================================================
-    // POPUNDER
-    // 5 MINUTES = 300000 milliseconds
-    // =========================================================
-
-    private static final long POPUNDER_INTERVAL =
-            5 * 60 * 1000L;
-
-    private static final String PREFS_NAME =
-            "mghangyi_settings";
-
-    private static final String LAST_POPUNDER =
-            "last_popunder";
-
-    // =========================================================
-
-    private WebView webView;
-
-    private final ExecutorService executor =
-            Executors.newSingleThreadExecutor();
-
-    private final Handler mainHandler =
-            new Handler(Looper.getMainLooper());
-
-    // =========================================================
-    // ACTIVITY CREATE
-    // =========================================================
+    private boolean pageLoaded = false;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-
         super.onCreate(savedInstanceState);
 
         webView = new WebView(this);
-
         setContentView(webView);
 
         setupWebView();
 
-        // Website load
-        webView.loadUrl(WEBSITE_URL);
+        /*
+         * Don't let the app stay on loading forever.
+         */
+        handler.postDelayed(() -> {
 
-        // Register this device/install
-        registerInstall();
-
-        // Try popunder according to 5-minute rule
-        mainHandler.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                openPopUnderIfAllowed();
+            if (!pageLoaded) {
+                Toast.makeText(
+                        MainActivity.this,
+                        "Internet connection is slow. Please try again.",
+                        Toast.LENGTH_SHORT
+                ).show();
             }
-        }, 2500);
-    }
 
-    // =========================================================
-    // WEBVIEW SETUP
-    // =========================================================
+        }, 15000);
+
+        /*
+         * Install count runs separately.
+         * If it fails, the app still works.
+         */
+        sendInstallCount();
+
+        loadWebsite();
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     private void setupWebView() {
@@ -131,33 +97,19 @@ public class MainActivity extends Activity {
         settings.setAllowFileAccess(true);
         settings.setAllowContentAccess(true);
 
-        settings.setJavaScriptCanOpenWindowsAutomatically(true);
-        settings.setSupportMultipleWindows(true);
+        settings.setLoadWithOverviewMode(false);
+        settings.setUseWideViewPort(true);
 
         settings.setBuiltInZoomControls(false);
         settings.setDisplayZoomControls(false);
 
-        settings.setLoadWithOverviewMode(false);
-        settings.setUseWideViewPort(true);
-
         settings.setMediaPlaybackRequiresUserGesture(false);
 
-        CookieManager cookieManager =
-                CookieManager.getInstance();
-
-        cookieManager.setAcceptCookie(true);
-
-        if (android.os.Build.VERSION.SDK_INT >= 21) {
-            cookieManager.setAcceptThirdPartyCookies(
-                    webView,
-                    true
-            );
-        }
-
-        // =====================================================
-        // WEBVIEW CLIENT
-        // =====================================================
-
+        /*
+         * IMPORTANT
+         * Keep navigation inside WebView except
+         * Telegram / external app links.
+         */
         webView.setWebViewClient(new WebViewClient() {
 
             @Override
@@ -165,9 +117,9 @@ public class MainActivity extends Activity {
                     WebView view,
                     WebResourceRequest request) {
 
-                Uri uri = request.getUrl();
+                String url = request.getUrl().toString();
 
-                return handleUrl(uri);
+                return handleUrl(url);
             }
 
             @Override
@@ -175,491 +127,307 @@ public class MainActivity extends Activity {
                     WebView view,
                     String url) {
 
-                Uri uri = Uri.parse(url);
-
-                return handleUrl(uri);
+                return handleUrl(url);
             }
-        });
-
-        // =====================================================
-        // CHROME CLIENT
-        // =====================================================
-
-        webView.setWebChromeClient(new WebChromeClient() {
 
             @Override
-            public boolean onCreateWindow(
+            public void onPageFinished(
                     WebView view,
-                    boolean isDialog,
-                    boolean isUserGesture,
-                    android.os.Message resultMsg) {
+                    String url) {
 
-                // Prevent unlimited pop-up windows.
-                // Only allow one external popunder
-                // according to 5-minute limit.
+                super.onPageFinished(view, url);
 
-                if (!canOpenPopUnder()) {
-                    return false;
-                }
+                pageLoaded = true;
+            }
 
-                WebView popup = new WebView(MainActivity.this);
+            @Override
+            public void onReceivedError(
+                    WebView view,
+                    int errorCode,
+                    String description,
+                    String failingUrl) {
 
-                WebSettings popupSettings =
-                        popup.getSettings();
+                super.onReceivedError(
+                        view,
+                        errorCode,
+                        description,
+                        failingUrl
+                );
 
-                popupSettings.setJavaScriptEnabled(true);
-                popupSettings.setDomStorageEnabled(true);
-
-                popup.setWebViewClient(new WebViewClient() {
-
-                    @Override
-                    public boolean shouldOverrideUrlLoading(
-                            WebView view,
-                            String url) {
-
-                        openExternalIfAllowed(url);
-
-                        return true;
-                    }
-
-                    @Override
-                    public boolean shouldOverrideUrlLoading(
-                            WebView view,
-                            WebResourceRequest request) {
-
-                        openExternalIfAllowed(
-                                request.getUrl().toString()
-                        );
-
-                        return true;
-                    }
-                });
-
-                android.webkit.WebView.WebViewTransport transport =
-                        (android.webkit.WebView.WebViewTransport)
-                                resultMsg.obj;
-
-                transport.setWebView(popup);
-
-                resultMsg.sendToTarget();
-
-                savePopUnderTime();
-
-                return true;
+                /*
+                 * Don't keep showing infinite loading.
+                 */
+                Toast.makeText(
+                        MainActivity.this,
+                        "Page loading failed. Please check your internet.",
+                        Toast.LENGTH_SHORT
+                ).show();
             }
         });
+
+        webView.setWebChromeClient(new WebChromeClient());
     }
 
-    // =========================================================
-    // URL HANDLER
-    // =========================================================
+    private boolean handleUrl(String url) {
 
-    private boolean handleUrl(Uri uri) {
+        if (url == null) {
+            return false;
+        }
 
-        if (uri == null) {
+        /*
+         * Telegram links
+         */
+        if (url.startsWith("https://t.me/")
+                || url.startsWith("http://t.me/")
+                || url.startsWith("tg://")) {
+
+            openTelegram(url);
             return true;
         }
 
-        String scheme =
-                uri.getScheme() == null
-                        ? ""
-                        : uri.getScheme().toLowerCase();
+        /*
+         * Telegram username link specifically
+         */
+        if (url.contains("aaabbbhdvip")) {
 
-        String host =
-                uri.getHost() == null
-                        ? ""
-                        : uri.getHost().toLowerCase();
-
-        // -----------------------------------------------------
-        // TELEGRAM
-        // -----------------------------------------------------
-
-        if (host.equals("t.me")
-                || host.equals("telegram.me")
-                || host.equals("telegram.dog")) {
-
-            openTelegram(uri);
-
+            openTelegram(TELEGRAM_URL);
             return true;
         }
 
-        // -----------------------------------------------------
-        // HTTP / HTTPS
-        // -----------------------------------------------------
+        /*
+         * Normal website links stay inside WebView.
+         */
+        if (url.startsWith("http://")
+                || url.startsWith("https://")) {
 
-        if (scheme.equals("http")
-                || scheme.equals("https")) {
-
-            // Keep mghangyi.com inside WebView
-            if (host.equals("mghangyi.com")
-                    || host.endsWith(".mghangyi.com")) {
-
-                return false;
-            }
-
-            // External websites
-            openExternalIfAllowed(uri.toString());
-
-            return true;
+            return false;
         }
 
-        // -----------------------------------------------------
-        // TELEGRAM APP / OTHER APP LINKS
-        // -----------------------------------------------------
-
-        if (scheme.equals("tg")) {
-
-            openTelegram(uri);
-
-            return true;
-        }
-
-        // -----------------------------------------------------
-        // OTHER APPLICATION LINKS
-        // -----------------------------------------------------
-
+        /*
+         * Other external schemes.
+         */
         try {
 
-            Intent intent =
-                    new Intent(
-                            Intent.ACTION_VIEW,
-                            uri
-                    );
+            Intent intent = new Intent(
+                    Intent.ACTION_VIEW,
+                    Uri.parse(url)
+            );
 
             startActivity(intent);
 
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+
+            Toast.makeText(
+                    this,
+                    "Cannot open this link",
+                    Toast.LENGTH_SHORT
+            ).show();
         }
 
         return true;
     }
 
-    // =========================================================
-    // TELEGRAM OPEN
-    // =========================================================
+    private void openTelegram(String url) {
 
-    private void openTelegram(Uri uri) {
-
+        /*
+         * First try Telegram application.
+         */
         try {
 
-            Intent telegramApp =
-                    new Intent(
-                            Intent.ACTION_VIEW,
-                            uri
-                    );
-
-            telegramApp.setPackage(
-                    "org.telegram.messenger"
+            Intent telegramIntent = new Intent(
+                    Intent.ACTION_VIEW,
+                    Uri.parse(url)
             );
 
-            startActivity(telegramApp);
+            telegramIntent.setPackage("org.telegram.messenger");
 
-        } catch (Exception e) {
+            startActivity(telegramIntent);
 
-            try {
-
-                Intent browser =
-                        new Intent(
-                                Intent.ACTION_VIEW,
-                                uri
-                        );
-
-                startActivity(browser);
-
-            } catch (Exception ignored) {
-            }
-        }
-    }
-
-    // =========================================================
-    // EXTERNAL URL
-    // 5 MINUTE LIMIT
-    // =========================================================
-
-    private void openExternalIfAllowed(String url) {
-
-        if (url == null || url.trim().isEmpty()) {
             return;
-        }
 
-        if (!canOpenPopUnder()) {
-            return;
-        }
-
-        try {
-
-            Uri uri = Uri.parse(url);
-
-            Intent intent =
-                    new Intent(
-                            Intent.ACTION_VIEW,
-                            uri
-                    );
-
-            startActivity(intent);
-
-            savePopUnderTime();
-
-        } catch (Exception ignored) {
-        }
-    }
-
-    // =========================================================
-    // CHECK 5 MINUTE
-    // =========================================================
-
-    private boolean canOpenPopUnder() {
-
-        long lastTime =
-                getSharedPreferences(
-                        PREFS_NAME,
-                        MODE_PRIVATE
-                ).getLong(
-                        LAST_POPUNDER,
-                        0
-                );
-
-        long now =
-                System.currentTimeMillis();
-
-        return (now - lastTime)
-                >= POPUNDER_INTERVAL;
-    }
-
-    // =========================================================
-    // SAVE POPUNDER TIME
-    // =========================================================
-
-    private void savePopUnderTime() {
-
-        getSharedPreferences(
-                PREFS_NAME,
-                MODE_PRIVATE
-        )
-                .edit()
-                .putLong(
-                        LAST_POPUNDER,
-                        System.currentTimeMillis()
-                )
-                .apply();
-    }
-
-    // =========================================================
-    // OPEN POPUNDER
-    // =========================================================
-
-    private void openPopUnderIfAllowed() {
-
-        if (!canOpenPopUnder()) {
-            return;
+        } catch (ActivityNotFoundException ignored) {
+            // Telegram app not installed
         }
 
         /*
-         * IMPORTANT:
-         *
-         * The actual advertising URL/script normally comes
-         * from your website/ad network.
-         *
-         * We don't hard-code a random ad URL here.
-         *
-         * If your website triggers a popunder, the
-         * WebViewClient / WebChromeClient above will control
-         * the external opening and enforce the 5-minute limit.
+         * If Telegram isn't installed,
+         * open browser.
          */
-    }
-
-    // =========================================================
-    // INSTALL COUNT
-    // =========================================================
-
-    private void registerInstall() {
-
-        executor.execute(new Runnable() {
-
-            @Override
-            public void run() {
-
-                HttpURLConnection connection = null;
-
-                try {
-
-                    String deviceId =
-                            getAppDeviceId();
-
-                    URL url =
-                            new URL(
-                                    SUPABASE_URL
-                                            + "/rest/v1/"
-                                            + INSTALLS_TABLE
-                            );
-
-                    connection =
-                            (HttpURLConnection)
-                                    url.openConnection();
-
-                    connection.setRequestMethod("POST");
-
-                    connection.setConnectTimeout(15000);
-                    connection.setReadTimeout(15000);
-
-                    connection.setDoOutput(true);
-
-                    connection.setRequestProperty(
-                            "Content-Type",
-                            "application/json"
-                    );
-
-                    connection.setRequestProperty(
-                            "apikey",
-                            SUPABASE_KEY
-                    );
-
-                    connection.setRequestProperty(
-                            "Prefer",
-                            "return=minimal"
-                    );
-
-                    JSONObject object =
-                            new JSONObject();
-
-                    object.put(
-                            "device_id",
-                            deviceId
-                    );
-
-                    object.put(
-                            "app_version",
-                            "1.0"
-                    );
-
-                    String json =
-                            object.toString();
-
-                    OutputStream output =
-                            connection.getOutputStream();
-
-                    output.write(
-                            json.getBytes(
-                                    StandardCharsets.UTF_8
-                            )
-                    );
-
-                    output.flush();
-                    output.close();
-
-                    int responseCode =
-                            connection.getResponseCode();
-
-                    if (responseCode >= 200
-                            && responseCode < 300) {
-
-                        // Successfully registered
-
-                    } else {
-
-                        String error =
-                                readError(connection);
-
-                        android.util.Log.e(
-                                "INSTALL_COUNT",
-                                "HTTP "
-                                        + responseCode
-                                        + " : "
-                                        + error
-                        );
-                    }
-
-                } catch (Exception e) {
-
-                    android.util.Log.e(
-                            "INSTALL_COUNT",
-                            "Install registration error",
-                            e
-                    );
-
-                } finally {
-
-                    if (connection != null) {
-                        connection.disconnect();
-                    }
-                }
-            }
-        });
-    }
-
-    // =========================================================
-    // DEVICE ID
-    // IMPORTANT:
-    // Do NOT name this getDeviceId()
-    // =========================================================
-
-    @SuppressLint("HardwareIds")
-    private String getAppDeviceId() {
-
-        String androidId =
-                Settings.Secure.getString(
-                        getContentResolver(),
-                        Settings.Secure.ANDROID_ID
-                );
-
-        if (androidId == null
-                || androidId.trim().isEmpty()) {
-
-            return "unknown_"
-                    + System.currentTimeMillis();
-        }
-
-        return androidId;
-    }
-
-    // =========================================================
-    // READ ERROR
-    // =========================================================
-
-    private String readError(
-            HttpURLConnection connection) {
-
         try {
 
-            InputStream input =
-                    connection.getErrorStream();
+            Intent browserIntent = new Intent(
+                    Intent.ACTION_VIEW,
+                    Uri.parse(url)
+            );
 
-            if (input == null) {
-                return "";
-            }
-
-            BufferedReader reader =
-                    new BufferedReader(
-                            new InputStreamReader(
-                                    input,
-                                    StandardCharsets.UTF_8
-                            )
-                    );
-
-            StringBuilder result =
-                    new StringBuilder();
-
-            String line;
-
-            while ((line = reader.readLine()) != null) {
-                result.append(line);
-            }
-
-            reader.close();
-
-            return result.toString();
+            startActivity(browserIntent);
 
         } catch (Exception e) {
 
-            return e.getMessage() == null
-                    ? ""
-                    : e.getMessage();
+            Toast.makeText(
+                    this,
+                    "Telegram link cannot be opened",
+                    Toast.LENGTH_SHORT
+            ).show();
         }
     }
 
-    // =========================================================
-    // BACK BUTTON
-    // =========================================================
+    private void loadWebsite() {
+
+        pageLoaded = false;
+
+        webView.loadUrl(WEBSITE_URL);
+    }
+
+    /*
+     * ==============================
+     * INSTALL COUNT
+     * ==============================
+     *
+     * This runs in background.
+     *
+     * IMPORTANT:
+     * We do NOT block the WebView while
+     * install count is being sent.
+     */
+    private void sendInstallCount() {
+
+        new Thread(() -> {
+
+            HttpURLConnection connection = null;
+
+            try {
+
+                String deviceId = getDeviceId(this);
+
+                String projectUrl =
+                        "https://" +
+                        SUPABASE_PROJECT_ID +
+                        ".supabase.co";
+
+                /*
+                 * IMPORTANT:
+                 * This endpoint is only a placeholder until
+                 * your actual Supabase table/RPC name is known.
+                 *
+                 * It intentionally does NOT block the app.
+                 */
+
+                URL url = new URL(
+                        projectUrl +
+                        "/rest/v1/install_counts"
+                );
+
+                connection =
+                        (HttpURLConnection) url.openConnection();
+
+                connection.setRequestMethod("POST");
+
+                connection.setConnectTimeout(5000);
+                connection.setReadTimeout(5000);
+
+                connection.setRequestProperty(
+                        "apikey",
+                        SUPABASE_ANON_KEY
+                );
+
+                connection.setRequestProperty(
+                        "Authorization",
+                        "Bearer " + SUPABASE_ANON_KEY
+                );
+
+                connection.setRequestProperty(
+                        "Content-Type",
+                        "application/json"
+                );
+
+                connection.setRequestProperty(
+                        "Prefer",
+                        "return=minimal"
+                );
+
+                connection.setDoOutput(true);
+
+                String json =
+                        "{"
+                        + "\"device_id\":\""
+                        + escapeJson(deviceId)
+                        + "\""
+                        + "}";
+
+                connection
+                        .getOutputStream()
+                        .write(json.getBytes("UTF-8"));
+
+                int responseCode =
+                        connection.getResponseCode();
+
+                /*
+                 * 401 / 404 / 400 should NOT affect app.
+                 */
+                if (responseCode >= 200
+                        && responseCode < 300) {
+
+                    // Count successfully sent.
+
+                } else {
+
+                    // Ignore count error.
+                    // App continues normally.
+                }
+
+            } catch (Exception ignored) {
+
+                /*
+                 * Never stop the app because
+                 * install counter failed.
+                 */
+
+            } finally {
+
+                if (connection != null) {
+                    connection.disconnect();
+                }
+            }
+
+        }).start();
+    }
+
+    /*
+     * Android Device ID
+     *
+     * This replaces the old getDeviceId()
+     * which caused your Gradle compile error.
+     */
+    private String getDeviceId(Context context) {
+
+        try {
+
+            String id = Settings.Secure.getString(
+                    context.getContentResolver(),
+                    Settings.Secure.ANDROID_ID
+            );
+
+            if (id != null && !id.isEmpty()) {
+                return id;
+            }
+
+        } catch (Exception ignored) {
+        }
+
+        return "unknown_device";
+    }
+
+    private String escapeJson(String value) {
+
+        if (value == null) {
+            return "";
+        }
+
+        return value
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"");
+    }
 
     @Override
     public void onBackPressed() {
@@ -675,28 +443,16 @@ public class MainActivity extends Activity {
         }
     }
 
-    // =========================================================
-    // DESTROY
-    // =========================================================
-
     @Override
     protected void onDestroy() {
+
+        handler.removeCallbacksAndMessages(null);
 
         if (webView != null) {
 
             webView.stopLoading();
-
-            webView.setWebChromeClient(null);
-            webView.setWebViewClient(null);
-
             webView.destroy();
-
-            webView = null;
         }
-
-        executor.shutdownNow();
-
-        mainHandler.removeCallbacksAndMessages(null);
 
         super.onDestroy();
     }
